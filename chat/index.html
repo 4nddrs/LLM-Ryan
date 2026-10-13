@@ -797,10 +797,8 @@ document.getElementById("note-form").addEventListener("submit", async (event) =>
   document.getElementById("note-box").value = "";
   renderNotes(await (await fetch("/api/notes")).json());
 });
-fetch("/api/meetings").then(r => r.json()).then(async (meetings) => {
-  renderMeetings(meetings);
-  if (meetings[0]) await openMeeting(meetings[0].id);
-});
+// Startup opens a new chat; past meetings stay available in the sidebar.
+fetch("/api/meetings").then(r => r.json()).then(renderMeetings);
 fetch("/api/notes").then(r => r.json()).then(renderNotes);
 </script>
 </body>

@@ -4,26 +4,30 @@
 from __future__ import annotations
 
 import base64
+import hashlib
+import hmac
 import json
+import os
 import re
 import sqlite3
 from contextlib import contextmanager
+from http.cookies import SimpleCookie
 import urllib.error
 import urllib.request
 import uuid
 from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from urllib.parse import urlparse
+from urllib.parse import parse_qs, urlparse
 
 ROOT = Path(__file__).resolve().parent.parent
 SKILL_DIR = ROOT / ".cursor" / "skills" / "ryan-review"
 INDEX = Path(__file__).resolve().parent / "index.html"
 MODEL_CACHE = Path(__file__).resolve().parent / ".model"
-DB_PATH = Path(__file__).resolve().parent / "ryan.db"
+DB_PATH = Path(os.environ.get("DB_PATH", Path(__file__).resolve().parent / "ryan.db"))
 ENV_PATH = ROOT / ".env"
-HOST = "127.0.0.1"
-PORT = 8787
+HOST = os.environ.get("HOST", "127.0.0.1")
+PORT = int(os.environ.get("PORT", "8787"))
 
 # Newest flagship first. The key may only see a subset; we take the first hit.
 PRIORITY = (
@@ -77,6 +81,7 @@ def db():
 
 
 def init_db() -> None:
+    DB_PATH.parent.mkdir(parents=True, exist_ok=True)
     with db() as conn:
         conn.executescript(
             """
@@ -319,6 +324,11 @@ def prompt_with_notes(base: str, mode: str = "talk") -> str:
 
 
 def load_key() -> str:
+    env = os.environ.get("KEY_OPENAI", "").strip().strip('"').strip("'")
+    if env:
+        return env
+    if not ENV_PATH.is_file():
+        raise SystemExit("KEY_OPENAI is missing")
     for line in ENV_PATH.read_text().splitlines():
         if line.startswith("KEY_OPENAI="):
             return line.split("=", 1)[1].strip().strip('"').strip("'")
@@ -358,6 +368,9 @@ def _openai(key: str, path: str, payload: dict | None = None):
 
 
 def pick_model(key: str) -> str:
+    pinned = os.environ.get("MODEL", "").strip()
+    if pinned:
+        return pinned
     cached = MODEL_CACHE.read_text().strip() if MODEL_CACHE.exists() else ""
     if cached:
         return cached
@@ -411,6 +424,58 @@ def iter_deltas(response):
             yield delta
 
 
+def app_password() -> str:
+    return os.environ.get("APP_PASSWORD", "")
+
+
+def session_token(password: str) -> str:
+    return hmac.new(b"ryan-chat-session", password.encode(), hashlib.sha256).hexdigest()
+
+
+LOGIN_HTML = """<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ryan</title>
+<style>
+  body {
+    margin: 0; min-height: 100vh; display: grid; place-items: center;
+    background: #10100e; color: #f3f0e8;
+    font: 15px/1.5 ui-sans-serif, system-ui, sans-serif;
+  }
+  form { width: min(360px, calc(100% - 48px)); display: grid; gap: 12px; }
+  h1 { font-size: 18px; font-weight: 600; margin: 0; }
+  p { margin: 0; color: #8f8a80; }
+  input {
+    background: #1b1b18; color: inherit; border: 1px solid #2e2e29;
+    border-radius: 10px; padding: 12px 14px; font: inherit;
+  }
+  button {
+    background: #f3f0e8; color: #10100e; border: 0; border-radius: 999px;
+    padding: 10px 16px; font: inherit; font-weight: 600; cursor: pointer;
+  }
+  .err { color: #e4b2a2; }
+</style>
+</head>
+<body>
+<form method="post" action="/login">
+  <h1>Ryan</h1>
+  <p>This chat is private.</p>
+  <!--error-->
+  <input type="password" name="password" autocomplete="current-password" autofocus required>
+  <button type="submit">Enter</button>
+</form>
+</body>
+</html>
+"""
+
+
+def login_page(wrong: bool = False) -> bytes:
+    note = "<p class='err'>Wrong password.</p>" if wrong else ""
+    return LOGIN_HTML.replace("<!--error-->", note).encode()
+
+
 class ChatHandler(BaseHTTPRequestHandler):
     key = ""
     model = ""
@@ -429,6 +494,74 @@ class ChatHandler(BaseHTTPRequestHandler):
     def _path(self) -> str:
         return urlparse(self.path).path
 
+    def _session_value(self) -> str:
+        raw = self.headers.get("Cookie", "")
+        if not raw:
+            return ""
+        try:
+            jar = SimpleCookie()
+            jar.load(raw)
+        except Exception:
+            return ""
+        bit = jar.get("ryan_session")
+        return bit.value if bit else ""
+
+    def _authorized(self) -> bool:
+        password = app_password()
+        if not password:
+            return True
+        got = self._session_value()
+        expected = session_token(password)
+        if len(got) != len(expected):
+            return False
+        return hmac.compare_digest(got, expected)
+
+    def _require_auth(self) -> bool:
+        if self._authorized() or self._path() in ("/login", "/api/meta"):
+            return True
+        if self._path().startswith("/api/"):
+            self._send(401, b'{"error":"unauthorized"}', "application/json")
+            return False
+        self.send_response(303)
+        self.send_header("Location", "/login")
+        self.end_headers()
+        return False
+
+    def _set_session(self) -> None:
+        token = session_token(app_password())
+        cookie = f"ryan_session={token}; HttpOnly; SameSite=Lax; Path=/; Max-Age=2592000"
+        if os.environ.get("FLY_APP_NAME"):
+            cookie += "; Secure"
+        self.send_header("Set-Cookie", cookie)
+
+    def _read_form(self) -> dict[str, str]:
+        try:
+            length = int(self.headers.get("Content-Length", "0") or "0")
+        except ValueError:
+            return {}
+        raw = self.rfile.read(max(length, 0)).decode("utf-8", errors="replace")
+        parsed = parse_qs(raw, keep_blank_values=True)
+        return {key: values[0] if values else "" for key, values in parsed.items()}
+
+    def _login(self) -> None:
+        if not app_password() or (self.command == "GET" and self._authorized()):
+            self.send_response(303)
+            self.send_header("Location", "/")
+            self.end_headers()
+            return
+        if self.command == "GET":
+            self._send(200, login_page(), "text/html; charset=utf-8")
+            return
+        got = self._read_form().get("password", "")
+        expected = app_password()
+        if expected and hmac.compare_digest(got.encode(), expected.encode()):
+            self.send_response(303)
+            self._set_session()
+            self.send_header("Location", "/")
+            self.end_headers()
+            return
+        self._send(401, login_page(wrong=True), "text/html; charset=utf-8")
+
     def _read_json(self) -> dict | None:
         length = int(self.headers.get("Content-Length", "0"))
         try:
@@ -439,6 +572,11 @@ class ChatHandler(BaseHTTPRequestHandler):
 
     def do_GET(self) -> None:  # noqa: N802
         path = self._path()
+        if path == "/login":
+            self._login()
+            return
+        if not self._require_auth():
+            return
         if path in ("/", "/index.html"):
             body = INDEX.read_bytes()
             self.send_response(200)
@@ -478,6 +616,11 @@ class ChatHandler(BaseHTTPRequestHandler):
 
     def do_POST(self) -> None:  # noqa: N802
         path = self._path()
+        if path == "/login":
+            self._login()
+            return
+        if not self._require_auth():
+            return
         if path == "/api/notes":
             payload = self._read_json()
             body = (payload or {}).get("body") if payload else None
@@ -588,6 +731,8 @@ class ChatHandler(BaseHTTPRequestHandler):
             return
 
     def do_PATCH(self) -> None:  # noqa: N802
+        if not self._require_auth():
+            return
         match = re.fullmatch(r"/api/meetings/([0-9a-f-]{36})", self._path())
         if not match:
             self._send(404, b"not found", "text/plain")
@@ -604,6 +749,8 @@ class ChatHandler(BaseHTTPRequestHandler):
         self._send(200, json.dumps({"id": match.group(1), "title": clean}).encode(), "application/json")
 
     def do_DELETE(self) -> None:  # noqa: N802
+        if not self._require_auth():
+            return
         path = self._path()
         meeting = re.fullmatch(r"/api/meetings/([0-9a-f-]{36})", path)
         if meeting:

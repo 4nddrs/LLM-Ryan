@@ -1,0 +1,39 @@
+# One machine. The sqlite database lives on the ryan_data volume.
+# Before the first deploy:
+#   fly apps create ryangpt
+#   fly volumes create ryan_data --region ewr --size 1 -a ryangpt
+#   fly secrets set KEY_OPENAI=... APP_PASSWORD=... -a ryangpt
+#   fly deploy -a ryangpt
+app = "ryangpt"
+primary_region = "ewr"
+
+[build]
+  dockerfile = "Dockerfile"
+
+[env]
+  HOST = "0.0.0.0"
+  PORT = "8080"
+  DB_PATH = "/data/ryan.db"
+  MODEL = "gpt-4.1"
+
+[http_service]
+  internal_port = 8080
+  force_https = true
+  auto_stop_machines = "stop"
+  auto_start_machines = true
+  min_machines_running = 0
+
+  [[http_service.checks]]
+    interval = "30s"
+    timeout = "5s"
+    grace_period = "15s"
+    method = "GET"
+    path = "/api/meta"
+
+[[mounts]]
+  source = "ryan_data"
+  destination = "/data"
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "256mb"

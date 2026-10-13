@@ -1,0 +1,10 @@
+.git
+.env
+chat/.model
+chat/*.db
+chat/*.db-wal
+chat/*.db-shm
+__pycache__
+*.pyc
+.atl
+.DS_Store

@@ -163,6 +163,63 @@ What's missing
 Questions
 - Will you rerun DINOv2 and flow matching on the model that produced 12.5%?
 
+## Two points called a big gap
+
+Update: "Ours is a big gap over the paper, 19 versus 17, on RoboMME."
+
+What this shows
+19 versus 17 is not a big gap. "Ours" is also unread until it says whether 19 is the paper's number or a re-run of their checkpoint.
+
+What's missing
+- Which cell is the paper, and which cell is the re-run
+
+Questions
+- Is 19 their re-run of the checkpoint, or the number the paper printed?
+
+## Stage 2 before stage 1
+
+Update: "We fine-tuned the VLA on simulator subtask text so it follows the subgoal. Qwen3VL writes the subgoal."
+
+What this shows
+Using subtask text inside the VLA is stage 2. It is not earned while stage 1 is open: a reliable subtask string from the VLM, on the simulator and on the real setup. There is no ground-truth subgoal in the real world.
+
+What's missing
+- Whether the subtask text came from the simulator
+- A check that the VLM's subtask text is right before it trains the VLA
+
+Questions
+- Did the subtask text come from the simulator?
+- How often is that text right, on the simulator and on the real setup?
+
+## Soft touch on a fingertip
+
+Update: "Gripper tip v2, video attached. The finger touches the tip."
+
+What this shows
+A touch that does not deform the tip is not the test. The part was built so the deformation shows the pressure.
+
+What's missing
+- A video where the tip is pressed hard enough to deform
+
+Questions
+- Can you record the tip deforming under a harder press?
+
+## Page he cannot read in a few seconds
+
+Update: "The machines page lists every host, with notes and scores. 87 is on the front."
+
+What this shows
+A first open has to show, in 2 to 5 seconds, who is using the machine and whether CPU, memory, and GPU are busy. A bare 87 and a page of empty rows do not.
+
+What's missing
+- What 87 counts
+- CPU, memory, and GPU, with the busiest user first
+- The name of the person who built the view
+
+Questions
+- What does 87 count?
+- Who is using the GPU right now?
+
 ## Recurrent gain without a fixed baseline
 
 Update: "Recurrent memory accuracy rises as we go from short clips toward 2000 frames."

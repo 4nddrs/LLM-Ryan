@@ -2,7 +2,7 @@
 # Before the first deploy:
 #   fly apps create ryangpt
 #   fly volumes create ryan_data --region ewr --size 1 -a ryangpt
-#   fly secrets set KEY_OPENAI=... APP_PASSWORD=... -a ryangpt
+#   fly secrets set KEY_OPENAI=... KEY_JEV=... APP_PASSWORD=... -a ryangpt
 #   fly deploy -a ryangpt
 app = "ryangpt"
 primary_region = "ewr"

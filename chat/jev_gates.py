@@ -7,6 +7,7 @@ fine-tuned. Editing a criterion and re-running this file is the training step.
 from __future__ import annotations
 
 import json
+import os
 import re
 import urllib.request
 from pathlib import Path
@@ -228,6 +229,11 @@ CASES: list[tuple[str, str, str]] = [
 
 
 def load_key() -> str:
+    env = os.environ.get("KEY_JEV", "").strip().strip('"').strip("'")
+    if env:
+        return env
+    if not ENV_PATH.is_file():
+        raise SystemExit("KEY_JEV is missing")
     for line in ENV_PATH.read_text().splitlines():
         if line.startswith("KEY_JEV="):
             return line.split("=", 1)[1].strip().strip('"').strip("'")

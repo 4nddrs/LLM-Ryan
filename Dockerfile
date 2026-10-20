@@ -2,7 +2,7 @@ FROM python:3.12-slim
 
 WORKDIR /app
 
-COPY chat/server.py chat/index.html chat/
+COPY chat/server.py chat/jev_gates.py chat/index.html chat/
 COPY .cursor/skills/ryan-review .cursor/skills/ryan-review
 
 ENV HOST=0.0.0.0 \

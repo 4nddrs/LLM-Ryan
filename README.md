@@ -3,11 +3,13 @@
 A private chat app that talks the way Ryan runs a working conversation.
 
 You bring an experiment, a plan, a plot, a table, or a hardware status. RyanGPT
-answers as a stand-in that applies Ryan's review bar from the 9 Oct and 12 Oct
-2026 lab meetings: it pushes the work as far as it can go before you show the
-real Ryan. It is a single Python HTTP server plus one HTML page, a SQLite
-database, and the OpenAI chat API. No framework, no build step, no dependencies
-beyond the Python standard library.
+answers as a stand-in that applies Ryan's review bar from the 9, 12, 13, 15, 16,
+and 19 Oct 2026 meetings, including the ETH sit-down on 19 Oct. It pushes the
+work as far as it can go before you show the real Ryan. It is a single Python
+HTTP server plus one HTML page, a SQLite database, and the OpenAI chat API.
+Jev (`chat/jev_gates.py`) is the typed first-objection check in front of that
+chat. No framework, no build step, no dependencies beyond the Python standard
+library.
 
 It is being deployed on [Fly.io](https://fly.io) as the `ryangpt` app.
 
@@ -45,13 +47,17 @@ talks; no code change needed.
    cd LLM-Ryan
    ```
 
-2. **Create the `.env` file at the repo root** with your OpenAI key:
+2. **Create the `.env` file at the repo root** with your keys:
 
    ```sh
    KEY_OPENAI=sk-your-key-here
+   KEY_JEV=apikey_your-jev-key-here
    ```
 
-   The server reads this file directly, so no shell export is needed.
+   The server reads this file directly, so no shell export is needed. `KEY_JEV`
+   is the TypeSafe key for the first-objection check. Without it, Report stays
+   held and Talk does not interrupt. Copy the key onto the new machine by hand.
+   It is not in the repo.
 
 3. **Start the server.**
 
@@ -72,6 +78,7 @@ override them (environment variables win over `.env`).
 | Variable        | Default              | Meaning                                              |
 | --------------- | -------------------- | ---------------------------------------------------- |
 | `KEY_OPENAI`    | — (required)         | OpenAI API key.                                      |
+| `KEY_JEV`       | unset                | TypeSafe key for the Jev first-objection check.      |
 | `HOST`          | `127.0.0.1`          | Bind address. Use `0.0.0.0` to expose the server.    |
 | `PORT`          | `8787`               | HTTP port.                                           |
 | `DB_PATH`       | `chat/ryan.db`       | SQLite database path.                                |
@@ -84,6 +91,7 @@ override them (environment variables win over `.env`).
 docker build -t ryangpt .
 docker run --rm -p 8080:8080 \
   -e KEY_OPENAI=sk-your-key-here \
+  -e KEY_JEV=apikey_your-jev-key-here \
   -e APP_PASSWORD=choose-a-password \
   -v ryan_data:/data \
   ryangpt
@@ -103,7 +111,7 @@ One-time setup:
 ```sh
 fly apps create ryangpt
 fly volumes create ryan_data --region ewr --size 1 -a ryangpt
-fly secrets set KEY_OPENAI=... APP_PASSWORD=... -a ryangpt
+fly secrets set KEY_OPENAI=... KEY_JEV=... APP_PASSWORD=... -a ryangpt
 ```
 
 Deploy:
@@ -112,22 +120,23 @@ Deploy:
 fly deploy -a ryangpt
 ```
 
-`KEY_OPENAI` and `APP_PASSWORD` are set as Fly secrets, never committed to the
-repo. On Fly the session cookie is marked `Secure` automatically, and the health
-check hits `/api/meta`.
+`KEY_OPENAI`, `KEY_JEV`, and `APP_PASSWORD` are set as Fly secrets, never
+committed to the repo. On Fly the session cookie is marked `Secure`
+automatically, and the health check hits `/api/meta`.
 
 ## Layout
 
 ```
 chat/
   server.py     # HTTP server: API, SQLite, OpenAI streaming, login
+  jev_gates.py  # Jev first-objection check, hold text, and report scrubber
   index.html    # the whole front end (vanilla JS, no build)
   ryan.db       # local SQLite database (git-ignored)
   .model        # cached model name (git-ignored)
 .cursor/skills/ryan-review/   # the review rules loaded into the system prompt
 Dockerfile                    # python:3.12-slim image
 fly.toml                      # Fly.io app config
-.env                          # KEY_OPENAI (git-ignored)
+.env                          # KEY_OPENAI and KEY_JEV (git-ignored)
 ```
 
 ## Notes

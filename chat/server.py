@@ -20,6 +20,8 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
+from jev_gates import decide, hold_text, load_key as load_jev_key, report_instruction, scrub_released, talk_text
+
 ROOT = Path(__file__).resolve().parent.parent
 SKILL_DIR = ROOT / ".cursor" / "skills" / "ryan-review"
 INDEX = Path(__file__).resolve().parent / "index.html"
@@ -45,7 +47,7 @@ PRIORITY = (
 
 PREAMBLE = """You are Ryan in a working conversation with someone on his team. They use you to get an experiment, a plan, or a writeup as far as it can go before they show the real Ryan. They will also just talk.
 
-Speak in the first person, in English only, even when they write in another language. You are the person in the conversation. Do not talk about Ryan in the third person. Direct and short. Do not wrap the reply in a code fence. Do not say you are a language model, a skill, or a simulation. If they ask whether you are the real Ryan, say you are a stand-in that applies his 9 Oct, 12 Oct, and 13 Oct 2026 bar, then go back to the work.
+Speak in the first person, in English only, even when they write in another language. You are the person in the conversation. Do not talk about Ryan in the third person. Direct and short. Do not wrap the reply in a code fence. Do not say you are a language model, a skill, or a simulation. If they ask whether you are the real Ryan, say you are a stand-in that applies his 9 Oct, 12 Oct, 13 Oct, 15 Oct, 16 Oct, and 19 Oct 2026 bar, then go back to the work.
 
 The message mode at the end of this prompt wins over the headings above. Never print Claim I can read, Failed gates, Misread, What has to be in the doc, or Knee-jerk.
 
@@ -307,8 +309,40 @@ This message is a conversation, not a report. Answer in speech. No Purpose, Arch
 """
 
 REPORT_MODE = """
-This message is a report for a colleague. Read the text and any table before you ask. Start with What this shows: the numbers that are earned, and the sentence they do not support. A title line such as "T1: [name]" is the title. Do not ask for it. A labeled table already says what was compared. Do not ask what the numbers mean. A best group that skips a row, or lumps arms whose intervals barely overlap, is not earned. Name the skipped row. Ask only for a field that is truly absent, usually the architecture. Do not ask for a score. If they gave none, write not scored. Do not write the finished report while a real gap is open. When you do write it, the first sentence of Context says whether the result supports the hypothesis or cuts against it. Do not call a gap of about two points big. Label a cell as the paper's number or a re-run. Do not write stage 2 as done while stage 1 is open. Do not describe a lower resolution as longer memory. Do not compare a 7-number action across sets until the order is written. A set of about 52 is too small to train. A hardware close shows the behavior the part was built for. A bare number has its unit. If the claim is an improvement and the misses are unnamed, ask and do not finish the report.
+This message is a report for a colleague. Read the text and any table before you ask. Start with What this shows: the numbers that are earned, and the sentence they do not support. A title line such as "T1: [name]" is the title. Do not ask for it. A labeled table already says what was compared. Do not ask what the numbers mean. A best group that skips a row, or lumps arms whose intervals barely overlap, is not earned. Name the skipped row. The report check at the end of this prompt decides whether the report is written. Do not ask for the architecture unless that check says to. Do not ask for a score. If they gave none, write not scored. Do not write the finished report while a real gap is open. When you do write it, the first sentence of Context says whether the result supports the hypothesis or cuts against it. Do not call a gap of about two points big. Label a cell as the paper's number or a re-run. Do not write stage 2 as done while stage 1 is open. Do not describe a lower resolution as longer memory. Do not compare a 7-number action across sets until the order is written. A set of about 52 is too small to train. A hardware close shows the behavior the part was built for. A bare number has its unit. If the claim is an improvement and the misses are unnamed, ask and do not finish the report.
 """
+
+
+def report_state(messages: list[dict]) -> str:
+    parts = []
+    for message in messages:
+        if message["role"] != "user":
+            continue
+        text = (message.get("content") or "").strip()
+        if text:
+            parts.append(text)
+    return "\n\n".join(parts)[-12000:]
+
+
+def report_check(messages: list[dict], key: str) -> str:
+    if not key:
+        return (
+            "\n\nThe report check has no key. Do not write the finished report. "
+            "Say the check did not run."
+        )
+    state = report_state(messages)
+    if not state:
+        return (
+            "\n\nThe report check saw no text. Do not write the finished report from an image alone."
+        )
+    try:
+        return report_instruction(decide(state, key))
+    except Exception as error:
+        print(f"jev report check failed: {type(error).__name__}", flush=True)
+        return (
+            "\n\nThe report check did not run. Do not write the finished report. "
+            "Say the check did not run."
+        )
 
 
 def prompt_with_notes(base: str, mode: str = "talk") -> str:
@@ -478,6 +512,7 @@ def login_page(wrong: bool = False) -> bytes:
 
 class ChatHandler(BaseHTTPRequestHandler):
     key = ""
+    jev_key = ""
     model = ""
     prompt = ""
 
@@ -678,10 +713,48 @@ class ChatHandler(BaseHTTPRequestHandler):
         history = meeting_messages(meeting_id) or []
         clean = history_for_model(history)
 
+        if mode == "talk" and self.jev_key:
+            latest = ""
+            for message in reversed(history):
+                if message["role"] == "user" and (message.get("content") or "").strip():
+                    latest = message["content"].strip()
+                    break
+            if latest:
+                try:
+                    talked = talk_text(decide(latest, self.jev_key))
+                except Exception as error:
+                    print(f"jev talk check failed: {type(error).__name__}", flush=True)
+                    talked = ""
+                if talked:
+                    self._send_reply(created, meeting_id, talked)
+                    return
+
+        system = prompt_with_notes(self.prompt, mode)
+        if mode == "report":
+            state = report_state(history)
+            try:
+                decision = decide(state, self.jev_key) if state and self.jev_key else None
+            except Exception as error:
+                print(f"jev report check failed: {type(error).__name__}", flush=True)
+                decision = None
+            if decision is None or not decision["release"]:
+                if decision is None:
+                    reply = (
+                        "What's missing\n"
+                        "- The report check did not run.\n\n"
+                        "Questions\n"
+                        "- The finished report stays unwritten until the check runs.\n"
+                    )
+                else:
+                    reply = hold_text(decision)
+                self._send_reply(created, meeting_id, reply)
+                return
+            system += report_instruction(decision)
+        release_report = mode == "report"
         outbound = {
             "model": self.model,
-            "stream": True,
-            "messages": [{"role": "system", "content": prompt_with_notes(self.prompt, mode)}, *clean],
+            "stream": not release_report,
+            "messages": [{"role": "system", "content": system}, *clean],
         }
         request = urllib.request.Request(
             "https://api.openai.com/v1/chat/completions",
@@ -702,6 +775,22 @@ class ChatHandler(BaseHTTPRequestHandler):
         except urllib.error.URLError as error:
             body = json.dumps({"error": str(error.reason), "meeting_id": meeting_id}).encode()
             self._send(502, body, "application/json")
+            return
+
+        if release_report:
+            try:
+                body = json.loads(response.read().decode())
+                reply = body["choices"][0]["message"]["content"].strip()
+            except (KeyError, IndexError, json.JSONDecodeError, urllib.error.URLError):
+                reply = (
+                    "What's missing\n"
+                    "- The report could not be written.\n\n"
+                    "Questions\n"
+                    "- Send the update again.\n"
+                )
+            else:
+                reply = scrub_released(reply, state)
+            self._send_reply(created, meeting_id, reply)
             return
 
         self.send_response(200)
@@ -729,6 +818,25 @@ class ChatHandler(BaseHTTPRequestHandler):
             if reply:
                 add_message(meeting_id, "assistant", reply)
             return
+
+    def _send_reply(self, created: dict | None, meeting_id: str, reply: str) -> None:
+        self.send_response(200)
+        self.send_header("Content-Type", "text/event-stream; charset=utf-8")
+        self.send_header("Cache-Control", "no-cache")
+        self.end_headers()
+        saved = False
+        try:
+            if created:
+                self.wfile.write(f"data: {json.dumps({'meeting': created})}\n\n".encode())
+            if reply:
+                self.wfile.write(("data: " + json.dumps({"d": reply}) + "\n\n").encode())
+                add_message(meeting_id, "assistant", reply)
+                saved = True
+            self.wfile.write(b"data: {\"done\": true}\n\n")
+            self.wfile.flush()
+        except (BrokenPipeError, ConnectionResetError):
+            if reply and not saved:
+                add_message(meeting_id, "assistant", reply)
 
     def do_PATCH(self) -> None:  # noqa: N802
         if not self._require_auth():
@@ -773,6 +881,10 @@ def main() -> None:
     init_db()
     key = load_key()
     ChatHandler.key = key
+    try:
+        ChatHandler.jev_key = load_jev_key()
+    except SystemExit:
+        ChatHandler.jev_key = ""
     ChatHandler.model = pick_model(key)
     ChatHandler.prompt = system_prompt()
     print(f"model {ChatHandler.model}", flush=True)

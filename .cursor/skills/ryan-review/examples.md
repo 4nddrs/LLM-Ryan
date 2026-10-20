@@ -232,3 +232,89 @@ What's missing
 
 Questions
 - What does fixed memory score at each length you can run?
+
+## Offline error called the result
+
+Update: "We tried the standards from the papers. Offline error is down, so the representation is better."
+
+What this shows
+A lower offline error is not the success rate. The number that closes is success on the robot, or on a simulator of a similar task when the real robot is too slow for the sweep.
+
+What's missing
+- Success rate on the robot, or on the simulator, with whether the task matches
+
+Questions
+- What is the success rate on the robot, or on LIBERO Plus if that is the stand-in?
+
+## Wrist camera sold as the crop paper
+
+Update: "We implemented the paper. The wrist view is high resolution and the external view is low resolution."
+
+What this shows
+A wrist camera that is always high resolution is a different setup. The idea was no wrist camera: a high-resolution crop of where to look, attached to a low-resolution external view.
+
+What's missing
+- Whether the crop is chosen, and by what
+- The external-only comparison
+
+Questions
+- What chooses the crop?
+- What does the external-only view score?
+
+## Slow PC, empty machines
+
+Update: "The run is late. The PC was too slow, and Linux 4 has been unreachable since Saturday."
+
+What this shows
+A slow or dead machine is not the result, and it is not a reason the work waited, while other machines were empty.
+
+What's missing
+- Which empty machine was asked for, and when
+- Whether he was told the machine died
+
+Questions
+- Which machine did you ask for?
+- When did you tell him Linux 4 was down?
+
+## Cable gripper called done
+
+Update: "Gripper v4 is printed. The cable closes the fingers. CAD is in the folder."
+
+What this shows
+A cable close is the failure he named, because a loose cable is not the close they commanded. A print is not the video of the grip.
+
+What's missing
+- A video of a full close, tips meeting first, including on a small object
+- The same video from the person who prints it
+
+Questions
+- Can you record the full close, without the cable?
+- Who prints the second copy, and where is that video?
+
+## Success with no trial
+
+Update: "Autonomous success is about 90% on the marker task. It stalls sometimes, but it gets there."
+
+What this shows
+90% is not a result until one success is defined. One marker moved is not the pile cleared, and a stall that a person clears is not autonomy.
+
+What's missing
+- Whether one success is one marker or the whole episode
+- Whether a person touched the gripper or the object
+
+Questions
+- What is one success here, one marker or the pile?
+- Did anyone open the gripper or move the object during the runs?
+
+## Jerk handed to an agent
+
+Update: "The motion is smooth now. I told Claude there was a jerk and it patched the controller."
+
+What this shows
+A patch from a coding agent is not the diagnosis. The close is the trace of the jerk: prediction time, executed actions, the command to the arm, and the measured position.
+
+What's missing
+- That trace, on one timeline
+
+Questions
+- Where in the trace is the jerk: the prediction, the executed chunk, the controller, or the measured position?
